@@ -1,0 +1,10 @@
+.DS_Store
+.pytest_cache/
+.venv/
+build/
+dist/
+src/toons/_native/
+src/toons/__pycache__/
+src/toons.egg-info/
+tests/__pycache__/
+*.pyc
