@@ -17,9 +17,46 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
-      - uses: mlugg/setup-zig@v1
-        with:
-          version: 0.15.2
+      - name: Install Zig
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="0.15.2"
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-X64)
+              archive="zig-linux-x86_64-${version}.tar.xz"
+              url="https://ziglang.org/download/${version}/${archive}"
+              curl -L "$url" -o "$archive"
+              tar -xf "$archive"
+              echo "$PWD/zig-linux-x86_64-${version}" >> "$GITHUB_PATH"
+              ;;
+            macOS-X64)
+              archive="zig-macos-x86_64-${version}.tar.xz"
+              url="https://ziglang.org/download/${version}/${archive}"
+              curl -L "$url" -o "$archive"
+              tar -xf "$archive"
+              echo "$PWD/zig-macos-x86_64-${version}" >> "$GITHUB_PATH"
+              ;;
+            macOS-ARM64)
+              archive="zig-macos-aarch64-${version}.tar.xz"
+              url="https://ziglang.org/download/${version}/${archive}"
+              curl -L "$url" -o "$archive"
+              tar -xf "$archive"
+              echo "$PWD/zig-macos-aarch64-${version}" >> "$GITHUB_PATH"
+              ;;
+            Windows-X64)
+              archive="zig-windows-x86_64-${version}.zip"
+              url="https://ziglang.org/download/${version}/${archive}"
+              curl -L "$url" -o "$archive"
+              unzip -q "$archive"
+              echo "$PWD/zig-windows-x86_64-${version}" >> "$GITHUB_PATH"
+              ;;
+            *)
+              echo "Unsupported runner: ${RUNNER_OS}-${RUNNER_ARCH}" >&2
+              exit 1
+              ;;
+          esac
       - name: Install
         run: uv sync --extra dev
       - name: Test
