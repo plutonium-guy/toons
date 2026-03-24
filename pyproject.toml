@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "toons"
+name = "toonz"
 version = "0.1.0"
-description = "TOONS - Token Oriented Object Notation Serializer powered by Zig FFI"
+description = "TOONZ - Token Oriented Object Notation Serializer powered by Zig FFI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
@@ -14,14 +14,14 @@ dependencies = []
 dev = ["pytest>=8.4.0"]
 
 [project.scripts]
-toons = "toons.__main__:main"
+toonz = "toonz.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.package-data]
-toons = ["py.typed"]
+toonz = ["py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

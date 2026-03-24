@@ -1,6 +1,6 @@
-# TOONS
+# TOONZ
 
-**TOONS** stands for **Token Oriented Object Notation Serializer**.
+**TOONZ** stands for **Token Oriented Object Notation Serializer**.
 
 It is a Python package with a Zig native core that gives you:
 
@@ -9,9 +9,9 @@ It is a Python package with a Zig native core that gives you:
 - an LLM-friendly text mode that prefers low-friction output
 - custom codecs, typed loading, framing, inspection, packing, and sealing
 
-TOONS is built for cases where plain JSON is too limited, `pickle` is too Python-specific, and you still want good ergonomics from Python.
+TOONZ is built for cases where plain JSON is too limited, `pickle` is too Python-specific, and you still want good ergonomics from Python.
 
-## Why TOONS
+## Why TOONZ
 
 - **Native core**: CPU-heavy serialization and parsing lives in Zig.
 - **Python-first API**: the package feels natural to use from Python.
@@ -21,7 +21,7 @@ TOONS is built for cases where plain JSON is too limited, `pickle` is too Python
 
 ## Installation
 
-TOONS is designed to work well with `uv`.
+TOONZ is designed to work well with `uv`.
 
 ```bash
 uv sync --extra dev
@@ -37,7 +37,7 @@ The native Zig library is bundled in builds, and when needed the package can reb
 from datetime import date
 from decimal import Decimal
 
-import toons
+import toonz
 
 payload = {
     "name": "TOONS",
@@ -48,8 +48,8 @@ payload = {
     "price": Decimal("19.9900"),
 }
 
-encoded = toons.dumps(payload)
-decoded = toons.loads(encoded)
+encoded = toonz.dumps(payload)
+decoded = toonz.loads(encoded)
 
 assert decoded == payload
 ```
@@ -57,7 +57,7 @@ assert decoded == payload
 ### TOON text round-trip
 
 ```python
-import toons
+import toonz
 
 payload = {
     "items": [
@@ -66,20 +66,20 @@ payload = {
     ]
 }
 
-text = toons.encode_text(payload)
+text = toonz.encode_text(payload)
 print(text)
 
 # items[2]{sku,qty,price}:
 #   A1,2,9.99
 #   B2,1,14.5
 
-assert toons.decode_text(text) == payload
+assert toonz.decode_text(text) == payload
 ```
 
 ### LLM-friendly text mode
 
 ```python
-import toons
+import toonz
 
 payload = {
     "data": {
@@ -89,18 +89,18 @@ payload = {
     }
 }
 
-text = toons.encode_llm_text(payload)
+text = toonz.encode_llm_text(payload)
 print(text)
 
 # Uses safe key folding and can choose a delimiter that reduces quoting.
 
-restored = toons.decode_text(text, expand_paths="safe")
+restored = toonz.decode_text(text, expand_paths="safe")
 assert restored == payload
 ```
 
 ## Supported Data Types
 
-TOONS round-trips:
+TOONZ round-trips:
 
 - `None`
 - `bool`
@@ -133,12 +133,12 @@ TOONS round-trips:
 ### Stable binary encoding
 
 ```python
-import toons
+import toonz
 
 first = {"b": 2, "a": 1}
 second = {"a": 1, "b": 2}
 
-assert toons.canonical_dumps(first) == toons.canonical_dumps(second)
+assert toonz.canonical_dumps(first) == toonz.canonical_dumps(second)
 ```
 
 ### Custom codecs
@@ -146,7 +146,7 @@ assert toons.canonical_dumps(first) == toons.canonical_dumps(second)
 ```python
 from dataclasses import dataclass
 
-import toons
+import toonz
 
 
 @dataclass(frozen=True)
@@ -154,7 +154,7 @@ class Token:
     value: str
 
 
-registry = toons.CodecRegistry()
+registry = toonz.CodecRegistry()
 registry.register(
     Token,
     "example.token",
@@ -162,8 +162,8 @@ registry.register(
     lambda payload: Token(payload["value"]),
 )
 
-encoded = toons.dumps({"token": Token("abc")}, registry=registry)
-decoded = toons.loads(encoded, registry=registry)
+encoded = toonz.dumps({"token": Token("abc")}, registry=registry)
+decoded = toonz.loads(encoded, registry=registry)
 
 assert decoded["token"] == Token("abc")
 ```
@@ -174,7 +174,7 @@ assert decoded["token"] == Token("abc")
 from dataclasses import dataclass
 from datetime import date
 
-import toons
+import toonz
 
 
 @dataclass(frozen=True)
@@ -184,22 +184,22 @@ class Artist:
     active: bool
 
 
-encoded = toons.dumps({"name": "Amiya", "born": date(1990, 1, 1), "active": True})
-artist = toons.loads_as(encoded, Artist)
+encoded = toonz.dumps({"name": "Amiya", "born": date(1990, 1, 1), "active": True})
+artist = toonz.loads_as(encoded, Artist)
 ```
 
 ### Inspect payloads and enforce limits
 
 ```python
-import toons
+import toonz
 
-payload = toons.dumps({"items": [1, {"deep": ["x"]}]})
+payload = toonz.dumps({"items": [1, {"deep": ["x"]}]})
 
-print(toons.inspect_text(payload))
+print(toonz.inspect_text(payload))
 
-safe = toons.loads(
+safe = toonz.loads(
     payload,
-    limits=toons.DecodeLimits(max_depth=8, max_total_nodes=10_000),
+    limits=toonz.DecodeLimits(max_depth=8, max_total_nodes=10_000),
 )
 ```
 
@@ -207,28 +207,28 @@ safe = toons.loads(
 
 ```python
 import io
-import toons
+import toonz
 
 buffer = io.BytesIO()
-toons.stream_dump([{"n": 1}, {"n": 2}, {"n": 3}], buffer)
+toonz.stream_dump([{"n": 1}, {"n": 2}, {"n": 3}], buffer)
 
 buffer.seek(0)
-items = list(toons.stream_load(buffer))
+items = list(toonz.stream_load(buffer))
 assert items == [{"n": 1}, {"n": 2}, {"n": 3}]
 ```
 
 ### Pack, compress, checksum, and seal
 
 ```python
-import toons
+import toonz
 
-sealed = toons.seal(
+sealed = toonz.seal(
     {"secret": "value"},
     "shared-key",
     compression="gzip",
 )
 
-decoded = toons.unseal(sealed, "shared-key")
+decoded = toonz.unseal(sealed, "shared-key")
 assert decoded == {"secret": "value"}
 ```
 
@@ -236,35 +236,35 @@ assert decoded == {"secret": "value"}
 
 Core binary API:
 
-- `toons.dumps(obj) -> bytes`
-- `toons.loads(data) -> object`
-- `toons.dump(obj, fp)`
-- `toons.load(fp)`
+- `toonz.dumps(obj) -> bytes`
+- `toonz.loads(data) -> object`
+- `toonz.dump(obj, fp)`
+- `toonz.load(fp)`
 
 Text API:
 
-- `toons.encode_text(obj) -> str`
-- `toons.encode_llm_text(obj) -> str`
-- `toons.decode_text(text) -> object`
+- `toonz.encode_text(obj) -> str`
+- `toonz.encode_llm_text(obj) -> str`
+- `toonz.decode_text(text) -> object`
 
 Extra helpers:
 
-- `toons.canonical_dumps(...)`
-- `toons.loads_as(...)`
-- `toons.inspect_text(...)`
-- `toons.inspect_tree(...)`
-- `toons.stream_dump(...)`
-- `toons.stream_load(...)`
-- `toons.pack(...)`
-- `toons.unpack(...)`
-- `toons.seal(...)`
-- `toons.unseal(...)`
+- `toonz.canonical_dumps(...)`
+- `toonz.loads_as(...)`
+- `toonz.inspect_text(...)`
+- `toonz.inspect_tree(...)`
+- `toonz.stream_dump(...)`
+- `toonz.stream_load(...)`
+- `toonz.pack(...)`
+- `toonz.unpack(...)`
+- `toonz.seal(...)`
+- `toonz.unseal(...)`
 
 ## Format Notes
 
-TOONS has two user-facing representations in this package:
+TOONZ has two user-facing representations in this package:
 
-### 1. Native binary TOONS
+### 1. Native binary TOONZ
 
 The binary format uses:
 
@@ -301,8 +301,8 @@ uv build
 
 ## Project Layout
 
-- [`src/toons`](/Volumes/external_storage/toonz/src/toons): Python package
-- [`zig/toons.zig`](/Volumes/external_storage/toonz/zig/toons.zig): binary serializer/deserializer
+- [`src/toonz`](/Volumes/external_storage/toonz/src/toonz): Python package
+- [`zig/toonz.zig`](/Volumes/external_storage/toonz/zig/toonz.zig): binary serializer/deserializer
 - [`zig/text_format.zig`](/Volumes/external_storage/toonz/zig/text_format.zig): native TOON text renderer/parser
 - [`tests/test_toons.py`](/Volumes/external_storage/toonz/tests/test_toons.py): test coverage
 - [`benchmarks/benchmark_roundtrip.py`](/Volumes/external_storage/toonz/benchmarks/benchmark_roundtrip.py): local micro-benchmark

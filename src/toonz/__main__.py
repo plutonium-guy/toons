@@ -44,18 +44,18 @@ def _to_jsonable(value: Any) -> Any:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Encode and decode TOONS payloads.")
+    parser = argparse.ArgumentParser(description="Encode and decode TOONZ payloads.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    encode_parser = subparsers.add_parser("encode", help="Encode a Python literal to TOONS bytes.")
+    encode_parser = subparsers.add_parser("encode", help="Encode a Python literal to TOONZ bytes.")
     encode_parser.add_argument("literal", help="Python literal, parsed with ast.literal_eval")
     encode_parser.add_argument("--canonical", action="store_true", help="Sort mappings for stable output")
 
-    decode_parser = subparsers.add_parser("decode", help="Decode TOONS bytes from hex.")
-    decode_parser.add_argument("hex_payload", help="Hex string generated from a TOONS payload")
+    decode_parser = subparsers.add_parser("decode", help="Decode TOONZ bytes from hex.")
+    decode_parser.add_argument("hex_payload", help="Hex string generated from a TOONZ payload")
 
-    inspect_parser = subparsers.add_parser("inspect", help="Inspect a TOONS payload from hex.")
-    inspect_parser.add_argument("hex_payload", help="Hex string generated from a TOONS payload")
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect a TOONZ payload from hex.")
+    inspect_parser.add_argument("hex_payload", help="Hex string generated from a TOONZ payload")
 
     encode_text_parser = subparsers.add_parser("encode-text", help="Encode a Python literal to TOON text.")
     encode_text_parser.add_argument("literal", help="Python literal, parsed with ast.literal_eval")
@@ -74,13 +74,13 @@ def main() -> None:
     schema_parser = subparsers.add_parser("schema", help="Infer a lightweight schema from a Python literal.")
     schema_parser.add_argument("literal", help="Python literal, parsed with ast.literal_eval")
 
-    pack_parser = subparsers.add_parser("pack", help="Pack a TOONS payload with optional compression/HMAC.")
+    pack_parser = subparsers.add_parser("pack", help="Pack a TOONZ payload with optional compression/HMAC.")
     pack_parser.add_argument("literal", help="Python literal, parsed with ast.literal_eval")
     pack_parser.add_argument("--compression", choices=["gzip", "lzma", "zlib"])
     pack_parser.add_argument("--secret", help="Shared secret for HMAC sealing")
 
-    unpack_parser = subparsers.add_parser("unpack", help="Unpack a packed TOONS payload from base64.")
-    unpack_parser.add_argument("base64_payload", help="Packed TOONS envelope in base64")
+    unpack_parser = subparsers.add_parser("unpack", help="Unpack a packed TOONZ payload from base64.")
+    unpack_parser.add_argument("base64_payload", help="Packed TOONZ envelope in base64")
     unpack_parser.add_argument("--secret", help="Shared secret for HMAC sealed payloads")
 
     args = parser.parse_args()

@@ -14,8 +14,8 @@ except ImportError:  # pragma: no cover
 
 def _load_build_module():
     root = Path(__file__).resolve().parent
-    module_path = root / "src" / "toons" / "_build_zig.py"
-    spec = importlib.util.spec_from_file_location("toons_build_zig", module_path)
+    module_path = root / "src" / "toonz" / "_build_zig.py"
+    spec = importlib.util.spec_from_file_location("toonz_build_zig", module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load Zig build helper from {module_path}")
 
@@ -27,7 +27,7 @@ def _load_build_module():
 class build_py(_build_py):
     def run(self) -> None:
         build_module = _load_build_module()
-        target_dir = Path(self.build_lib) / "toons" / "_native"
+        target_dir = Path(self.build_lib) / "toonz" / "_native"
         build_module.build_native(target_dir)
         super().run()
 

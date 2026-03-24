@@ -1,0 +1,2 @@
+[console_scripts]
+toons = toons.__main__:main

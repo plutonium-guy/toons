@@ -3,8 +3,8 @@
 .venv/
 build/
 dist/
-src/toons/_native/
-src/toons/__pycache__/
-src/toons.egg-info/
+src/toonz/_native/
+src/toonz/__pycache__/
+src/toonz.egg-info/
 tests/__pycache__/
 *.pyc

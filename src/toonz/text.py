@@ -35,7 +35,7 @@ _ESCAPE_DECODE = {
     "t": "\t",
 }
 
-_TEXT_SENTINEL_KEY = "$toons"
+_TEXT_SENTINEL_KEY = "$toonz"
 _TEXT_SENTINEL_KIND = "kind"
 _TEXT_SENTINEL_PAYLOAD = "payload"
 _TEXT_SENTINEL_NAME = "name"

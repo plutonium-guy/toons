@@ -12,15 +12,15 @@ def project_root() -> Path:
 
 
 def native_source() -> Path:
-    return project_root() / "zig" / "toons.zig"
+    return project_root() / "zig" / "toonz.zig"
 
 
 def library_filename() -> str:
     if sys.platform == "darwin":
-        return "libtoons.dylib"
+        return "libtoonz.dylib"
     if sys.platform == "win32":
-        return "toons.dll"
-    return "libtoons.so"
+        return "toonz.dll"
+    return "libtoonz.so"
 
 
 def build_native(output_dir: Path) -> Path:

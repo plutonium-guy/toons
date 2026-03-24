@@ -9,7 +9,7 @@ from fractions import Fraction
 from pathlib import Path
 from uuid import UUID
 
-import toons
+import toonz
 
 PAYLOAD = {
     "name": "TOONS",
@@ -31,16 +31,16 @@ def bench(label: str, stmt: str, setup: str) -> None:
 
 
 def main() -> None:
-    setup = "from __main__ import PAYLOAD, toons, json, pickle"
+    setup = "from __main__ import PAYLOAD, toonz, json, pickle"
     json_payload = json.dumps({k: str(v) for k, v in PAYLOAD.items()}, sort_keys=True)
-    text_payload = toons.encode_llm_text(PAYLOAD)
+    text_payload = toonz.encode_llm_text(PAYLOAD)
 
     print("Round-trip micro-benchmark")
-    bench("toons.dumps", "toons.dumps(PAYLOAD, deterministic=True)", setup)
-    bench("toons.loads", "toons.loads(toons.dumps(PAYLOAD, deterministic=True))", setup)
-    bench("toons.text", "toons.encode_text(PAYLOAD, deterministic=True)", setup)
-    bench("toons.llm", "toons.encode_llm_text(PAYLOAD)", setup)
-    bench("toons.parse", f"toons.decode_text({text_payload!r})", setup)
+    bench("toonz.dumps", "toonz.dumps(PAYLOAD, deterministic=True)", setup)
+    bench("toonz.loads", "toonz.loads(toonz.dumps(PAYLOAD, deterministic=True))", setup)
+    bench("toonz.text", "toonz.encode_text(PAYLOAD, deterministic=True)", setup)
+    bench("toonz.llm", "toonz.encode_llm_text(PAYLOAD)", setup)
+    bench("toonz.parse", f"toonz.decode_text({text_payload!r})", setup)
     bench("pickle.dumps", "pickle.dumps(PAYLOAD)", setup)
     bench("pickle.loads", "pickle.loads(pickle.dumps(PAYLOAD))", setup)
     bench("json.dumps", "json.dumps({k: str(v) for k, v in PAYLOAD.items()}, sort_keys=True)", setup)

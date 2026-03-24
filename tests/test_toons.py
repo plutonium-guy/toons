@@ -14,7 +14,7 @@ from uuid import UUID
 
 import pytest
 
-import toons
+import toonz
 
 
 class Status(Enum):
@@ -52,8 +52,8 @@ def test_round_trip_nested_payload() -> None:
         "meta": {"lang": "python", "ffi": "zig"},
     }
 
-    encoded = toons.dumps(payload)
-    decoded = toons.loads(encoded)
+    encoded = toonz.dumps(payload)
+    decoded = toonz.loads(encoded)
 
     assert decoded == payload
 
@@ -62,10 +62,10 @@ def test_file_helpers_round_trip() -> None:
     payload = {"answer": 42, "items": ["a", "b", "c"]}
     buffer = io.BytesIO()
 
-    toons.dump(payload, buffer)
+    toonz.dump(payload, buffer)
     buffer.seek(0)
 
-    assert toons.load(buffer) == payload
+    assert toonz.load(buffer) == payload
 
 
 def test_round_trip_extended_python_types() -> None:
@@ -76,7 +76,7 @@ def test_round_trip_extended_python_types() -> None:
         "elapsed": timedelta(days=3, seconds=12, microseconds=345),
         "price": Decimal("19.9900"),
         "identifier": UUID("12345678-1234-5678-1234-567812345678"),
-        "location": Path("assets/toons"),
+        "location": Path("assets/toonz"),
         "labels": {"zig", "python", "ffi"},
         "frozen": frozenset({("x", 1), ("y", 2)}),
         "wave": complex(3.5, -2.25),
@@ -87,64 +87,64 @@ def test_round_trip_extended_python_types() -> None:
         "artist": Artist("Amiya", date(1990, 1, 1), True),
     }
 
-    assert toons.loads(toons.dumps(payload, deterministic=True)) == payload
+    assert toonz.loads(toonz.dumps(payload, deterministic=True)) == payload
 
 
 def test_version_1_payloads_remain_readable() -> None:
     payload = {"name": "legacy", "count": 2, "items": [1, 2, 3]}
-    encoded = bytearray(toons.dumps(payload))
+    encoded = bytearray(toonz.dumps(payload))
     encoded[4] = 1
 
-    assert toons.loads(bytes(encoded)) == payload
+    assert toonz.loads(bytes(encoded)) == payload
 
 
 def test_non_string_dict_key_is_rejected() -> None:
     with pytest.raises(TypeError):
-        toons.dumps({1: "bad"})
+        toonz.dumps({1: "bad"})
 
 
 def test_big_integers_are_supported() -> None:
     value = 2**100 + 5
-    assert toons.loads(toons.dumps(value)) == value
+    assert toonz.loads(toonz.dumps(value)) == value
 
 
 def test_bad_payload_raises_toons_error() -> None:
-    with pytest.raises(toons.ToonsError):
-        toons.loads(b"not-a-toons-payload")
+    with pytest.raises(toonz.ToonsError):
+        toonz.loads(b"not-a-toonz-payload")
 
 
 def test_custom_codec_round_trip() -> None:
-    registry = toons.CodecRegistry()
+    registry = toonz.CodecRegistry()
     registry.register(Token, "custom.token", lambda token: {"value": token.value}, lambda payload: Token(payload["value"]))
 
     payload = {"token": Token("abc123")}
 
-    assert toons.loads(toons.dumps(payload, registry=registry), registry=registry) == payload
+    assert toonz.loads(toonz.dumps(payload, registry=registry), registry=registry) == payload
 
 
 def test_schema_aware_loading() -> None:
     payload: ArtistPayload = {"name": "Amiya", "born": date(1990, 1, 1), "active": True}
-    encoded = toons.dumps(payload)
+    encoded = toonz.dumps(payload)
 
-    assert toons.loads_as(encoded, ArtistPayload) == payload
-    assert toons.loads_as(encoded, Artist) == Artist(**payload)
+    assert toonz.loads_as(encoded, ArtistPayload) == payload
+    assert toonz.loads_as(encoded, Artist) == Artist(**payload)
 
 
 def test_canonical_encoding_is_stable() -> None:
     first = {"b": 2, "a": 1}
     second = {"a": 1, "b": 2}
 
-    assert toons.canonical_dumps(first) == toons.canonical_dumps(second)
-    assert toons.dumps(first) != toons.dumps(second)
+    assert toonz.canonical_dumps(first) == toonz.canonical_dumps(second)
+    assert toonz.dumps(first) != toonz.dumps(second)
 
 
 def test_pack_and_unseal_with_compression_and_hmac() -> None:
     payload = {"name": "TOONS", "numbers": list(range(100))}
-    sealed = toons.seal(payload, "shared-secret", compression="gzip")
+    sealed = toonz.seal(payload, "shared-secret", compression="gzip")
 
-    assert toons.unseal(sealed, "shared-secret") == payload
-    with pytest.raises(toons.ToonsError):
-        toons.unseal(sealed, "wrong-secret")
+    assert toonz.unseal(sealed, "shared-secret") == payload
+    with pytest.raises(toonz.ToonsError):
+        toonz.unseal(sealed, "wrong-secret")
 
 
 def test_stream_framing_round_trip() -> None:
@@ -155,37 +155,37 @@ def test_stream_framing_round_trip() -> None:
     ]
     buffer = io.BytesIO()
 
-    toons.stream_dump(items, buffer, deterministic=True)
+    toonz.stream_dump(items, buffer, deterministic=True)
     buffer.seek(0)
 
-    assert list(toons.stream_load(buffer)) == items
+    assert list(toonz.stream_load(buffer)) == items
 
 
 def test_iterloads_round_trip() -> None:
     items = [{"n": 1}, {"n": 2}]
     buffer = io.BytesIO()
-    toons.stream_dump(items, buffer)
+    toonz.stream_dump(items, buffer)
     raw = buffer.getvalue()
     chunks = [raw[:7], raw[7:]]
 
-    assert list(toons.iterloads(chunks)) == items
+    assert list(toonz.iterloads(chunks)) == items
 
 
 def test_inspection_and_limits() -> None:
-    payload = toons.dumps({"items": [1, {"deep": ["x"]}]})
-    inspection = toons.inspect_text(payload)
+    payload = toonz.dumps({"items": [1, {"deep": ["x"]}]})
+    inspection = toonz.inspect_text(payload)
 
     assert "root['items'][1]['deep'][0]" in inspection
-    with pytest.raises(toons.ToonsError, match="Maximum nesting depth exceeded"):
-        toons.loads(payload, limits=toons.DecodeLimits(max_depth=2))
+    with pytest.raises(toonz.ToonsError, match="Maximum nesting depth exceeded"):
+        toonz.loads(payload, limits=toonz.DecodeLimits(max_depth=2))
 
 
 def test_text_round_trip_simple_object() -> None:
     payload = {"id": 123, "name": "Ada", "active": True}
-    text = toons.encode_text(payload)
+    text = toonz.encode_text(payload)
 
     assert text == "id: 123\nname: Ada\nactive: true"
-    assert toons.decode_text(text) == payload
+    assert toonz.decode_text(text) == payload
 
 
 def test_text_round_trip_tabular_array() -> None:
@@ -195,10 +195,10 @@ def test_text_round_trip_tabular_array() -> None:
             {"sku": "B2", "qty": 1, "price": 14.5},
         ]
     }
-    text = toons.encode_text(payload)
+    text = toonz.encode_text(payload)
 
     assert text == "items[2]{sku,qty,price}:\n  A1,2,9.99\n  B2,1,14.5"
-    assert toons.decode_text(text) == payload
+    assert toonz.decode_text(text) == payload
 
 
 def test_text_round_trip_mixed_array_examples() -> None:
@@ -209,27 +209,27 @@ def test_text_round_trip_mixed_array_examples() -> None:
         "  - text\n"
     )
 
-    assert toons.decode_text(text) == {"items": [1, {"a": 1}, "text"]}
-    assert toons.decode_text(toons.encode_text({"items": [1, {"a": 1}, "text"]})) == {
+    assert toonz.decode_text(text) == {"items": [1, {"a": 1}, "text"]}
+    assert toonz.decode_text(toonz.encode_text({"items": [1, {"a": 1}, "text"]})) == {
         "items": [1, {"a": 1}, "text"]
     }
 
 
 def test_text_root_array_and_root_primitive() -> None:
-    assert toons.encode_text([1, 2, 3]) == "[3]: 1,2,3"
-    assert toons.decode_text("[3]: 1,2,3") == [1, 2, 3]
-    assert toons.decode_text("[2]:\n  - 1\n  - 2\n") == [1, 2]
-    assert toons.encode_text("Hello 世界") == "Hello 世界"
-    assert toons.decode_text("42") == 42
+    assert toonz.encode_text([1, 2, 3]) == "[3]: 1,2,3"
+    assert toonz.decode_text("[3]: 1,2,3") == [1, 2, 3]
+    assert toonz.decode_text("[2]:\n  - 1\n  - 2\n") == [1, 2]
+    assert toonz.encode_text("Hello 世界") == "Hello 世界"
+    assert toonz.decode_text("42") == 42
 
 
 def test_text_key_folding_and_path_expansion() -> None:
     payload = {"data": {"metadata": {"items": ["a", "b"]}}}
-    text = toons.encode_text(payload, key_folding="safe")
+    text = toonz.encode_text(payload, key_folding="safe")
 
     assert text == "data.metadata.items[2]: a,b"
-    assert toons.decode_text(text, expand_paths="safe") == payload
-    assert toons.decode_text(text) == {"data.metadata.items": ["a", "b"]}
+    assert toonz.decode_text(text, expand_paths="safe") == payload
+    assert toonz.decode_text(text) == {"data.metadata.items": ["a", "b"]}
 
 
 def test_text_auto_delimiter_avoids_extra_quotes() -> None:
@@ -240,21 +240,21 @@ def test_text_auto_delimiter_avoids_extra_quotes() -> None:
         ]
     }
 
-    text = toons.encode_text(payload, delimiter="auto")
+    text = toonz.encode_text(payload, delimiter="auto")
 
     assert "[2\t]{sku\tname}:" in text
     assert '"Widget, Large"' not in text
-    assert toons.decode_text(text) == payload
+    assert toonz.decode_text(text) == payload
 
 
 def test_encode_llm_text_prefers_folded_compact_output() -> None:
     payload = {"data": {"metadata": {"items": ["alpha,beta", "gamma,delta"]}}}
 
-    text = toons.encode_llm_text(payload)
+    text = toonz.encode_llm_text(payload)
 
     assert text.startswith("data.metadata.items[2\t]: ")
     assert '"alpha,beta"' not in text
-    assert toons.decode_text(text, expand_paths="safe") == payload
+    assert toonz.decode_text(text, expand_paths="safe") == payload
 
 
 def test_text_round_trip_extended_python_values() -> None:
@@ -265,13 +265,13 @@ def test_text_round_trip_extended_python_values() -> None:
         "ratio": Fraction(2, 7),
     }
 
-    assert toons.decode_text(toons.encode_text(payload)) == payload
+    assert toonz.decode_text(toonz.encode_text(payload)) == payload
 
 
 def test_text_reserved_key_round_trip() -> None:
-    payload = {"$toons": {"kind": "dict", "payload": {"a": 1}}}
+    payload = {"$toonz": {"kind": "dict", "payload": {"a": 1}}}
 
-    assert toons.decode_text(toons.encode_text(payload)) == payload
+    assert toonz.decode_text(toonz.encode_text(payload)) == payload
 
 
 def test_fuzz_style_round_trip() -> None:
@@ -307,4 +307,4 @@ def test_fuzz_style_round_trip() -> None:
 
     for _ in range(25):
         value = generate()
-        assert toons.loads(toons.dumps(value, deterministic=True)) == value
+        assert toonz.loads(toonz.dumps(value, deterministic=True)) == value
