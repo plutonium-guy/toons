@@ -19,10 +19,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
-      - name: Install Zig
-        run: pip install ziglang==0.15.2
       - name: Install
         run: uv sync --extra dev
+      - name: Install Zig
+        run: uv pip install ziglang==0.15.2
       - name: Test
         run: uv run pytest
 
