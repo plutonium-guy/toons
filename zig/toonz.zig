@@ -188,6 +188,11 @@ fn writeBytes(buffer: *std.ArrayList(u8), bytes: []const u8) anyerror!void {
     try buffer.appendSlice(allocator, bytes);
 }
 
+fn writeTokenAndBytes(buffer: *std.ArrayList(u8), token: u8, bytes: []const u8) anyerror!void {
+    try buffer.append(allocator, token);
+    try writeBytes(buffer, bytes);
+}
+
 fn writeChildren(buffer: *std.ArrayList(u8), value: *const ToonsValue, token: u8) anyerror!void {
     const len_u32 = std.math.cast(u32, value.children_len) orelse return error.LengthOverflow;
     try buffer.append(allocator, token);
@@ -202,6 +207,33 @@ fn writeChildren(buffer: *std.ArrayList(u8), value: *const ToonsValue, token: u8
     for (children) |child| {
         try serializeValue(buffer, child);
     }
+}
+
+// Map token to tag for string-like types
+fn tokenToStringTag(token: u8) ?c_int {
+    return switch (token) {
+        token_string => tag_string,
+        token_date => tag_date,
+        token_time => tag_time,
+        token_datetime => tag_datetime,
+        token_decimal => tag_decimal,
+        token_uuid => tag_uuid,
+        token_path => tag_path,
+        else => null,
+    };
+}
+
+// Map token to tag for children-based types
+fn tokenToChildrenTag(token: u8) ?c_int {
+    return switch (token) {
+        token_list => tag_list,
+        token_tuple => tag_tuple,
+        token_set => tag_set,
+        token_frozenset => tag_frozenset,
+        token_timedelta => tag_timedelta,
+        token_complex => tag_complex,
+        else => null,
+    };
 }
 
 fn serializeValue(buffer: *std.ArrayList(u8), value: *const ToonsValue) anyerror!void {
@@ -220,44 +252,20 @@ fn serializeValue(buffer: *std.ArrayList(u8), value: *const ToonsValue) anyerror
             const bits: u64 = @bitCast(value.float_value);
             try appendInt(buffer, u64, bits);
         },
-        tag_string => {
-            try buffer.append(allocator, token_string);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
-        tag_bytes => {
-            try buffer.append(allocator, token_bytes);
-            try writeBytes(buffer, try ffiSliceToBytes(value.bytes_value));
-        },
+        tag_string => try writeTokenAndBytes(buffer, token_string, try ffiSliceToBytes(value.string_value)),
+        tag_bytes => try writeTokenAndBytes(buffer, token_bytes, try ffiSliceToBytes(value.bytes_value)),
         tag_list => try writeChildren(buffer, value, token_list),
         tag_tuple => try writeChildren(buffer, value, token_tuple),
         tag_set => try writeChildren(buffer, value, token_set),
         tag_frozenset => try writeChildren(buffer, value, token_frozenset),
         tag_timedelta => try writeChildren(buffer, value, token_timedelta),
         tag_complex => try writeChildren(buffer, value, token_complex),
-        tag_date => {
-            try buffer.append(allocator, token_date);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
-        tag_time => {
-            try buffer.append(allocator, token_time);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
-        tag_datetime => {
-            try buffer.append(allocator, token_datetime);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
-        tag_decimal => {
-            try buffer.append(allocator, token_decimal);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
-        tag_uuid => {
-            try buffer.append(allocator, token_uuid);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
-        tag_path => {
-            try buffer.append(allocator, token_path);
-            try writeBytes(buffer, try ffiSliceToBytes(value.string_value));
-        },
+        tag_date => try writeTokenAndBytes(buffer, token_date, try ffiSliceToBytes(value.string_value)),
+        tag_time => try writeTokenAndBytes(buffer, token_time, try ffiSliceToBytes(value.string_value)),
+        tag_datetime => try writeTokenAndBytes(buffer, token_datetime, try ffiSliceToBytes(value.string_value)),
+        tag_decimal => try writeTokenAndBytes(buffer, token_decimal, try ffiSliceToBytes(value.string_value)),
+        tag_uuid => try writeTokenAndBytes(buffer, token_uuid, try ffiSliceToBytes(value.string_value)),
+        tag_path => try writeTokenAndBytes(buffer, token_path, try ffiSliceToBytes(value.string_value)),
         tag_dict => {
             try buffer.append(allocator, token_dict);
             const len_u32 = std.math.cast(u32, value.pairs_len) orelse return error.LengthOverflow;
@@ -283,8 +291,46 @@ fn parseBytes(parser: *Parser) anyerror![]const u8 {
     return parser.readBytes(len);
 }
 
+fn parseChildrenValue(parser: *Parser, tag: c_int) anyerror!*ToonsValue {
+    const count = try parser.readInt(u32);
+    const value = try allocValue(tag);
+    if (count == 0) {
+        return value;
+    }
+
+    const children = try allocator.alloc(*ToonsValue, count);
+    errdefer allocator.free(children);
+    for (children, 0..) |*child, index| {
+        errdefer {
+            for (children[0..index]) |existing| {
+                freeValue(existing);
+            }
+        }
+        child.* = try parseValue(parser);
+    }
+    value.children_ptr = children.ptr;
+    value.children_len = children.len;
+    return value;
+}
+
+fn parseStringValue(parser: *Parser, tag: c_int) anyerror!*ToonsValue {
+    const value = try allocValue(tag);
+    value.string_value = try duplicateToSlice(try parseBytes(parser));
+    return value;
+}
+
 fn parseValue(parser: *Parser) anyerror!*ToonsValue {
     const token = try parser.readByte();
+
+    // String-like types: read length-prefixed bytes into string_value
+    if (tokenToStringTag(token)) |tag| {
+        return parseStringValue(parser, tag);
+    }
+
+    // Children-based types: read count + recursive children
+    if (tokenToChildrenTag(token)) |tag| {
+        return parseChildrenValue(parser, tag);
+    }
 
     switch (token) {
         token_null => return allocValue(tag_null),
@@ -308,170 +354,9 @@ fn parseValue(parser: *Parser) anyerror!*ToonsValue {
             value.float_value = @bitCast(bits);
             return value;
         },
-        token_string => {
-            const value = try allocValue(tag_string);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
         token_bytes => {
             const value = try allocValue(tag_bytes);
             value.bytes_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_set => {
-            const count = try parser.readInt(u32);
-            const value = try allocValue(tag_set);
-            if (count == 0) {
-                return value;
-            }
-
-            const children = try allocator.alloc(*ToonsValue, count);
-            errdefer allocator.free(children);
-            for (children, 0..) |*child, index| {
-                errdefer {
-                    for (children[0..index]) |existing| {
-                        freeValue(existing);
-                    }
-                }
-                child.* = try parseValue(parser);
-            }
-            value.children_ptr = children.ptr;
-            value.children_len = children.len;
-            return value;
-        },
-        token_frozenset => {
-            const count = try parser.readInt(u32);
-            const value = try allocValue(tag_frozenset);
-            if (count == 0) {
-                return value;
-            }
-
-            const children = try allocator.alloc(*ToonsValue, count);
-            errdefer allocator.free(children);
-            for (children, 0..) |*child, index| {
-                errdefer {
-                    for (children[0..index]) |existing| {
-                        freeValue(existing);
-                    }
-                }
-                child.* = try parseValue(parser);
-            }
-            value.children_ptr = children.ptr;
-            value.children_len = children.len;
-            return value;
-        },
-        token_date => {
-            const value = try allocValue(tag_date);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_time => {
-            const value = try allocValue(tag_time);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_datetime => {
-            const value = try allocValue(tag_datetime);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_timedelta => {
-            const count = try parser.readInt(u32);
-            const value = try allocValue(tag_timedelta);
-            if (count == 0) {
-                return value;
-            }
-
-            const children = try allocator.alloc(*ToonsValue, count);
-            errdefer allocator.free(children);
-            for (children, 0..) |*child, index| {
-                errdefer {
-                    for (children[0..index]) |existing| {
-                        freeValue(existing);
-                    }
-                }
-                child.* = try parseValue(parser);
-            }
-            value.children_ptr = children.ptr;
-            value.children_len = children.len;
-            return value;
-        },
-        token_decimal => {
-            const value = try allocValue(tag_decimal);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_uuid => {
-            const value = try allocValue(tag_uuid);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_path => {
-            const value = try allocValue(tag_path);
-            value.string_value = try duplicateToSlice(try parseBytes(parser));
-            return value;
-        },
-        token_complex => {
-            const count = try parser.readInt(u32);
-            const value = try allocValue(tag_complex);
-            if (count == 0) {
-                return value;
-            }
-
-            const children = try allocator.alloc(*ToonsValue, count);
-            errdefer allocator.free(children);
-            for (children, 0..) |*child, index| {
-                errdefer {
-                    for (children[0..index]) |existing| {
-                        freeValue(existing);
-                    }
-                }
-                child.* = try parseValue(parser);
-            }
-            value.children_ptr = children.ptr;
-            value.children_len = children.len;
-            return value;
-        },
-        token_list => {
-            const count = try parser.readInt(u32);
-            const value = try allocValue(tag_list);
-            if (count == 0) {
-                return value;
-            }
-
-            const children = try allocator.alloc(*ToonsValue, count);
-            errdefer allocator.free(children);
-            for (children, 0..) |*child, index| {
-                errdefer {
-                    for (children[0..index]) |existing| {
-                        freeValue(existing);
-                    }
-                }
-                child.* = try parseValue(parser);
-            }
-            value.children_ptr = children.ptr;
-            value.children_len = children.len;
-            return value;
-        },
-        token_tuple => {
-            const count = try parser.readInt(u32);
-            const value = try allocValue(tag_tuple);
-            if (count == 0) {
-                return value;
-            }
-
-            const children = try allocator.alloc(*ToonsValue, count);
-            errdefer allocator.free(children);
-            for (children, 0..) |*child, index| {
-                errdefer {
-                    for (children[0..index]) |existing| {
-                        freeValue(existing);
-                    }
-                }
-                child.* = try parseValue(parser);
-            }
-            value.children_ptr = children.ptr;
-            value.children_len = children.len;
             return value;
         },
         token_dict => {
@@ -542,6 +427,13 @@ fn jsonString(value: json.Value) ![]const u8 {
     };
 }
 
+fn jsonArray(value: json.Value) ![]const json.Value {
+    return switch (value) {
+        .array => |inner| inner.items,
+        else => error.ExpectedArray,
+    };
+}
+
 const JsonEnvelope = struct {
     kind: []const u8,
     name: ?[]const u8 = null,
@@ -594,6 +486,12 @@ fn writeJsonExtPrelude(jws: *json.Stringify, name: []const u8) anyerror!void {
 fn writeJsonExtClose(jws: *json.Stringify) anyerror!void {
     try jws.endArray();
     try jws.endObject();
+}
+
+fn writeJsonStringExt(jws: *json.Stringify, name: []const u8, data: []const u8) anyerror!void {
+    try writeJsonExtPrelude(jws, name);
+    try jws.write(data);
+    try writeJsonExtClose(jws);
 }
 
 fn writeJsonEscapedDict(jws: *json.Stringify, value: *const ToonsValue) anyerror!void {
@@ -667,6 +565,24 @@ fn dictIsReservedEnvelope(value: *const ToonsValue) bool {
     return false;
 }
 
+// Extension name mapping for tag -> JSON extension name
+fn tagToExtName(tag: c_int) ?[]const u8 {
+    return switch (tag) {
+        tag_date => "python.date",
+        tag_time => "python.time",
+        tag_datetime => "python.datetime",
+        tag_decimal => "python.decimal",
+        tag_uuid => "python.uuid",
+        tag_path => "path:pathlib:Path",
+        tag_tuple => "python.tuple",
+        tag_set => "python.set",
+        tag_frozenset => "python.frozenset",
+        tag_timedelta => "python.timedelta",
+        tag_complex => "python.complex",
+        else => null,
+    };
+}
+
 fn writeJsonValue(jws: *json.Stringify, value: *const ToonsValue) anyerror!void {
     switch (value.tag) {
         tag_null => try jws.write(null),
@@ -690,41 +606,14 @@ fn writeJsonValue(jws: *json.Stringify, value: *const ToonsValue) anyerror!void 
         tag_string => try jws.write(try ffiSliceToBytes(value.string_value)),
         tag_bytes => try writeJsonBytesExt(jws, try ffiSliceToBytes(value.bytes_value)),
         tag_list => try writeJsonArray(jws, value.children_ptr, value.children_len),
-        tag_tuple => try writeJsonSequenceExt(jws, "python.tuple", value.children_ptr, value.children_len),
-        tag_set => try writeJsonSequenceExt(jws, "python.set", value.children_ptr, value.children_len),
-        tag_frozenset => try writeJsonSequenceExt(jws, "python.frozenset", value.children_ptr, value.children_len),
-        tag_date => {
-            try writeJsonExtPrelude(jws, "python.date");
-            try jws.write(try ffiSliceToBytes(value.string_value));
-            try writeJsonExtClose(jws);
+        // String-ext types: date, time, datetime, decimal, uuid, path
+        tag_date, tag_time, tag_datetime, tag_decimal, tag_uuid, tag_path => {
+            try writeJsonStringExt(jws, tagToExtName(value.tag).?, try ffiSliceToBytes(value.string_value));
         },
-        tag_time => {
-            try writeJsonExtPrelude(jws, "python.time");
-            try jws.write(try ffiSliceToBytes(value.string_value));
-            try writeJsonExtClose(jws);
+        // Sequence-ext types: tuple, set, frozenset, timedelta, complex
+        tag_tuple, tag_set, tag_frozenset, tag_timedelta, tag_complex => {
+            try writeJsonSequenceExt(jws, tagToExtName(value.tag).?, value.children_ptr, value.children_len);
         },
-        tag_datetime => {
-            try writeJsonExtPrelude(jws, "python.datetime");
-            try jws.write(try ffiSliceToBytes(value.string_value));
-            try writeJsonExtClose(jws);
-        },
-        tag_timedelta => try writeJsonSequenceExt(jws, "python.timedelta", value.children_ptr, value.children_len),
-        tag_decimal => {
-            try writeJsonExtPrelude(jws, "python.decimal");
-            try jws.write(try ffiSliceToBytes(value.string_value));
-            try writeJsonExtClose(jws);
-        },
-        tag_uuid => {
-            try writeJsonExtPrelude(jws, "python.uuid");
-            try jws.write(try ffiSliceToBytes(value.string_value));
-            try writeJsonExtClose(jws);
-        },
-        tag_path => {
-            try writeJsonExtPrelude(jws, "path:pathlib:Path");
-            try jws.write(try ffiSliceToBytes(value.string_value));
-            try writeJsonExtClose(jws);
-        },
-        tag_complex => try writeJsonSequenceExt(jws, "python.complex", value.children_ptr, value.children_len),
         tag_dict => {
             const pairs = if (value.pairs_len == 0 or value.pairs_ptr == null) &[_]ToonsPair{} else value.pairs_ptr.?[0..value.pairs_len];
             if (!dictIsReservedEnvelope(value)) {
@@ -782,6 +671,23 @@ fn serializeJsonObject(buffer: *std.ArrayList(u8), object: json.ObjectMap, canon
     }
 }
 
+fn serializeJsonSequenceExtension(
+    buffer: *std.ArrayList(u8),
+    token: u8,
+    payload: json.Value,
+    canonical: bool,
+) anyerror!void {
+    const array = try jsonArray(payload);
+    try buffer.append(allocator, token);
+    try appendInt(buffer, u32, std.math.cast(u32, array.len) orelse return error.LengthOverflow);
+    for (array) |item| try serializeJsonValue(buffer, item, canonical);
+}
+
+fn serializeJsonStringExtension(buffer: *std.ArrayList(u8), token: u8, payload: json.Value) anyerror!void {
+    try buffer.append(allocator, token);
+    try writeBytes(buffer, try jsonString(payload));
+}
+
 fn serializeJsonKnownExtension(
     buffer: *std.ArrayList(u8),
     name: []const u8,
@@ -812,64 +718,46 @@ fn serializeJsonKnownExtension(
         try appendInt(buffer, u64, @bitCast(float_value));
         return true;
     }
+    // Sequence-based extensions
     if (std.mem.eql(u8, name, "python.tuple")) {
-        const array = switch (payload) { .array => |inner| inner.items, else => return error.ExpectedArray };
-        try buffer.append(allocator, token_tuple);
-        try appendInt(buffer, u32, std.math.cast(u32, array.len) orelse return error.LengthOverflow);
-        for (array) |item| try serializeJsonValue(buffer, item, canonical);
+        try serializeJsonSequenceExtension(buffer, token_tuple, payload, canonical);
         return true;
     }
     if (std.mem.eql(u8, name, "python.set")) {
-        const array = switch (payload) { .array => |inner| inner.items, else => return error.ExpectedArray };
-        try buffer.append(allocator, token_set);
-        try appendInt(buffer, u32, std.math.cast(u32, array.len) orelse return error.LengthOverflow);
-        for (array) |item| try serializeJsonValue(buffer, item, canonical);
+        try serializeJsonSequenceExtension(buffer, token_set, payload, canonical);
         return true;
     }
     if (std.mem.eql(u8, name, "python.frozenset")) {
-        const array = switch (payload) { .array => |inner| inner.items, else => return error.ExpectedArray };
-        try buffer.append(allocator, token_frozenset);
-        try appendInt(buffer, u32, std.math.cast(u32, array.len) orelse return error.LengthOverflow);
-        for (array) |item| try serializeJsonValue(buffer, item, canonical);
+        try serializeJsonSequenceExtension(buffer, token_frozenset, payload, canonical);
         return true;
     }
     if (std.mem.eql(u8, name, "python.complex")) {
-        const array = switch (payload) { .array => |inner| inner.items, else => return error.ExpectedArray };
-        try buffer.append(allocator, token_complex);
-        try appendInt(buffer, u32, std.math.cast(u32, array.len) orelse return error.LengthOverflow);
-        for (array) |item| try serializeJsonValue(buffer, item, canonical);
+        try serializeJsonSequenceExtension(buffer, token_complex, payload, canonical);
         return true;
     }
     if (std.mem.eql(u8, name, "python.timedelta")) {
-        const array = switch (payload) { .array => |inner| inner.items, else => return error.ExpectedArray };
-        try buffer.append(allocator, token_timedelta);
-        try appendInt(buffer, u32, std.math.cast(u32, array.len) orelse return error.LengthOverflow);
-        for (array) |item| try serializeJsonValue(buffer, item, canonical);
+        try serializeJsonSequenceExtension(buffer, token_timedelta, payload, canonical);
         return true;
     }
+    // String-based extensions
     if (std.mem.eql(u8, name, "python.date")) {
-        try buffer.append(allocator, token_date);
-        try writeBytes(buffer, try jsonString(payload));
+        try serializeJsonStringExtension(buffer, token_date, payload);
         return true;
     }
     if (std.mem.eql(u8, name, "python.time")) {
-        try buffer.append(allocator, token_time);
-        try writeBytes(buffer, try jsonString(payload));
+        try serializeJsonStringExtension(buffer, token_time, payload);
         return true;
     }
     if (std.mem.eql(u8, name, "python.datetime")) {
-        try buffer.append(allocator, token_datetime);
-        try writeBytes(buffer, try jsonString(payload));
+        try serializeJsonStringExtension(buffer, token_datetime, payload);
         return true;
     }
     if (std.mem.eql(u8, name, "python.decimal")) {
-        try buffer.append(allocator, token_decimal);
-        try writeBytes(buffer, try jsonString(payload));
+        try serializeJsonStringExtension(buffer, token_decimal, payload);
         return true;
     }
     if (std.mem.eql(u8, name, "python.uuid")) {
-        try buffer.append(allocator, token_uuid);
-        try writeBytes(buffer, try jsonString(payload));
+        try serializeJsonStringExtension(buffer, token_uuid, payload);
         return true;
     }
     return false;
@@ -950,8 +838,6 @@ export fn toons_serialize_json(
     defer parsed.deinit();
 
     var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-
     buffer.appendSlice(allocator, header) catch |err| {
         setLastError("Unable to start payload: {s}", .{@errorName(err)});
         return false;
@@ -962,14 +848,15 @@ export fn toons_serialize_json(
     };
     serializeJsonValue(&buffer, parsed.value, canonical) catch |err| {
         setLastError("Serialize from JSON failed: {s}", .{@errorName(err)});
+        buffer.deinit(allocator);
         return false;
     };
 
-    const owned = allocator.alloc(u8, buffer.items.len) catch |err| {
+    const owned = buffer.toOwnedSlice(allocator) catch |err| {
         setLastError("Unable to allocate serialized buffer: {s}", .{@errorName(err)});
+        buffer.deinit(allocator);
         return false;
     };
-    @memcpy(owned, buffer.items);
     out_ptr.* = owned.ptr;
     out_len.* = owned.len;
     return true;
@@ -1119,8 +1006,6 @@ export fn toons_serialize(root: ?*const ToonsValue, out_ptr: *?[*]u8, out_len: *
     };
 
     var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-
     buffer.appendSlice(allocator, header) catch |err| {
         setLastError("Unable to start payload: {s}", .{@errorName(err)});
         return false;
@@ -1131,14 +1016,15 @@ export fn toons_serialize(root: ?*const ToonsValue, out_ptr: *?[*]u8, out_len: *
     };
     serializeValue(&buffer, value) catch |err| {
         setLastError("Serialize failed: {s}", .{@errorName(err)});
+        buffer.deinit(allocator);
         return false;
     };
 
-    const owned = allocator.alloc(u8, buffer.items.len) catch |err| {
+    const owned = buffer.toOwnedSlice(allocator) catch |err| {
         setLastError("Unable to allocate serialized buffer: {s}", .{@errorName(err)});
+        buffer.deinit(allocator);
         return false;
     };
-    @memcpy(owned, buffer.items);
     out_ptr.* = owned.ptr;
     out_len.* = owned.len;
     return true;

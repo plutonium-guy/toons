@@ -2,8 +2,6 @@ const std = @import("std");
 const json = std.json;
 
 const Allocator = std.mem.Allocator;
-const render_allocator = std.heap.c_allocator;
-
 pub fn renderJsonText(allocator: Allocator, value: json.Value, delimiter: u8) ![]u8 {
     if (delimiter != ',' and delimiter != '|' and delimiter != '\t') {
         return error.InvalidDelimiter;
@@ -92,7 +90,7 @@ fn renderRoot(buffer: *std.ArrayList(u8), allocator: Allocator, value: json.Valu
     switch (value) {
         .object => |object| try renderObjectLines(buffer, allocator, object, 0, delimiter),
         .array => |array| try renderArrayLines(buffer, allocator, null, array, 0, delimiter),
-        else => try renderPrimitive(buffer, value, delimiter),
+        else => try renderPrimitive(buffer, allocator, value, delimiter),
     }
 }
 
@@ -120,8 +118,8 @@ fn renderFieldLines(
     switch (value) {
         .array => |array| try renderArrayLines(buffer, allocator, key, array, indent, delimiter),
         .object => |object| {
-            try beginLine(buffer, indent);
-            try renderKey(buffer, key, delimiter);
+            try beginLine(buffer, allocator, indent);
+            try renderKey(buffer, allocator, key, delimiter);
             try buffer.append(allocator, ':');
             if (object.count() != 0) {
                 var child = std.ArrayList(u8).empty;
@@ -131,10 +129,10 @@ fn renderFieldLines(
             }
         },
         else => {
-            try beginLine(buffer, indent);
-            try renderKey(buffer, key, delimiter);
+            try beginLine(buffer, allocator, indent);
+            try renderKey(buffer, allocator, key, delimiter);
             try buffer.appendSlice(allocator, ": ");
-            try renderPrimitive(buffer, value, delimiter);
+            try renderPrimitive(buffer, allocator, value, delimiter);
         },
     }
 }
@@ -148,15 +146,15 @@ fn renderArrayLines(
     delimiter: u8,
 ) anyerror!void {
     if (arrayIsPrimitive(array.items)) {
-        try beginLine(buffer, indent);
-        if (key) |actual| try renderKey(buffer, actual, delimiter);
+        try beginLine(buffer, allocator, indent);
+        if (key) |actual| try renderKey(buffer, allocator, actual, delimiter);
         try writeLengthMarker(buffer, allocator, array.items.len, delimiter);
         try buffer.append(allocator, ':');
         if (array.items.len > 0) {
             try buffer.append(allocator, ' ');
             for (array.items, 0..) |item, index| {
                 if (index > 0) try buffer.append(allocator, delimiter);
-                try renderPrimitive(buffer, item, delimiter);
+                try renderPrimitive(buffer, allocator, item, delimiter);
             }
         }
         return;
@@ -164,28 +162,28 @@ fn renderArrayLines(
 
     if (try tabularFields(allocator, array)) |fields| {
         defer allocator.free(fields);
-        try beginLine(buffer, indent);
-        if (key) |actual| try renderKey(buffer, actual, delimiter);
+        try beginLine(buffer, allocator, indent);
+        if (key) |actual| try renderKey(buffer, allocator, actual, delimiter);
         try writeLengthMarker(buffer, allocator, array.items.len, delimiter);
         try buffer.append(allocator, '{');
         for (fields, 0..) |field, index| {
             if (index > 0) try buffer.append(allocator, delimiter);
-            try renderKey(buffer, field, delimiter);
+            try renderKey(buffer, allocator, field, delimiter);
         }
         try buffer.appendSlice(allocator, "}:");
         for (array.items) |item| {
-            try beginLine(buffer, indent + 2);
+            try beginLine(buffer, allocator, indent + 2);
             const object = item.object;
             for (fields, 0..) |field, index| {
                 if (index > 0) try buffer.append(allocator, delimiter);
-                try renderPrimitive(buffer, object.get(field).?, delimiter);
+                try renderPrimitive(buffer, allocator, object.get(field).?, delimiter);
             }
         }
         return;
     }
 
-    try beginLine(buffer, indent);
-    if (key) |actual| try renderKey(buffer, actual, delimiter);
+    try beginLine(buffer, allocator, indent);
+    if (key) |actual| try renderKey(buffer, allocator, actual, delimiter);
     try writeLengthMarker(buffer, allocator, array.items.len, delimiter);
     try buffer.append(allocator, ':');
     for (array.items) |item| {
@@ -203,14 +201,14 @@ fn renderArrayItemLines(
     switch (value) {
         .object => |object| {
             if (object.count() == 0) {
-                try beginLine(buffer, indent);
+                try beginLine(buffer, allocator, indent);
                 try buffer.append(allocator, '-');
                 return;
             }
 
             var it = object.iterator();
             const first = it.next().?;
-            try beginLine(buffer, indent);
+            try beginLine(buffer, allocator, indent);
             try buffer.appendSlice(allocator, "- ");
             try renderInlineField(buffer, allocator, first.key_ptr.*, first.value_ptr.*, indent, delimiter);
             while (it.next()) |entry| {
@@ -221,14 +219,14 @@ fn renderArrayItemLines(
             var child = std.ArrayList(u8).empty;
             defer child.deinit(allocator);
             try renderArrayLines(&child, allocator, null, array, 0, delimiter);
-            try beginLine(buffer, indent);
+            try beginLine(buffer, allocator, indent);
             try buffer.appendSlice(allocator, "- ");
             try appendInlineBlock(buffer, allocator, child.items, indent + 2);
         },
         else => {
-            try beginLine(buffer, indent);
+            try beginLine(buffer, allocator, indent);
             try buffer.appendSlice(allocator, "- ");
-            try renderPrimitive(buffer, value, delimiter);
+            try renderPrimitive(buffer, allocator, value, delimiter);
         },
     }
 }
@@ -249,7 +247,7 @@ fn renderInlineField(
             try appendInlineBlock(buffer, allocator, child.items, indent + 4);
         },
         .object => |object| {
-            try renderKey(buffer, key, delimiter);
+            try renderKey(buffer, allocator, key, delimiter);
             try buffer.append(allocator, ':');
             if (object.count() != 0) {
                 var child = std.ArrayList(u8).empty;
@@ -259,9 +257,9 @@ fn renderInlineField(
             }
         },
         else => {
-            try renderKey(buffer, key, delimiter);
+            try renderKey(buffer, allocator, key, delimiter);
             try buffer.appendSlice(allocator, ": ");
-            try renderPrimitive(buffer, value, delimiter);
+            try renderPrimitive(buffer, allocator, value, delimiter);
         },
     }
 }
@@ -309,9 +307,9 @@ fn appendIndentedBlock(
     }
 }
 
-fn beginLine(buffer: *std.ArrayList(u8), indent: usize) !void {
-    if (buffer.items.len > 0) try buffer.append(render_allocator, '\n');
-    try buffer.appendNTimes(render_allocator, ' ', indent);
+fn beginLine(buffer: *std.ArrayList(u8), allocator: Allocator, indent: usize) !void {
+    if (buffer.items.len > 0) try buffer.append(allocator, '\n');
+    try buffer.appendNTimes(allocator, ' ', indent);
 }
 
 fn writeLengthMarker(buffer: *std.ArrayList(u8), allocator: Allocator, length: usize, delimiter: u8) !void {
@@ -322,48 +320,48 @@ fn writeLengthMarker(buffer: *std.ArrayList(u8), allocator: Allocator, length: u
     }
 }
 
-fn renderKey(buffer: *std.ArrayList(u8), value: []const u8, delimiter: u8) !void {
+fn renderKey(buffer: *std.ArrayList(u8), allocator: Allocator, value: []const u8, delimiter: u8) !void {
     if (canLeaveUnquoted(value, delimiter, true)) {
-        try buffer.appendSlice(render_allocator, value);
+        try buffer.appendSlice(allocator, value);
         return;
     }
-    try quoteString(buffer, value);
+    try quoteString(buffer, allocator, value);
 }
 
-fn renderPrimitive(buffer: *std.ArrayList(u8), value: json.Value, delimiter: u8) !void {
+fn renderPrimitive(buffer: *std.ArrayList(u8), allocator: Allocator, value: json.Value, delimiter: u8) !void {
     switch (value) {
-        .null => try buffer.appendSlice(render_allocator, "null"),
-        .bool => |inner| try buffer.appendSlice(render_allocator, if (inner) "true" else "false"),
-        .integer => |inner| try buffer.writer(render_allocator).print("{}", .{inner}),
-        .float => |inner| try buffer.writer(render_allocator).print("{d}", .{inner}),
-        .number_string => |inner| try buffer.appendSlice(render_allocator, inner),
+        .null => try buffer.appendSlice(allocator, "null"),
+        .bool => |inner| try buffer.appendSlice(allocator, if (inner) "true" else "false"),
+        .integer => |inner| try buffer.writer(allocator).print("{}", .{inner}),
+        .float => |inner| try buffer.writer(allocator).print("{d}", .{inner}),
+        .number_string => |inner| try buffer.appendSlice(allocator, inner),
         .string => |inner| {
             if (canLeaveUnquoted(inner, delimiter, false)) {
-                try buffer.appendSlice(render_allocator, inner);
+                try buffer.appendSlice(allocator, inner);
             } else {
-                try quoteString(buffer, inner);
+                try quoteString(buffer, allocator, inner);
             }
         },
         else => return error.ExpectedPrimitive,
     }
 }
 
-fn quoteString(buffer: *std.ArrayList(u8), value: []const u8) !void {
-    try buffer.append(render_allocator, '"');
+fn quoteString(buffer: *std.ArrayList(u8), allocator: Allocator, value: []const u8) !void {
+    try buffer.append(allocator, '"');
     for (value) |char| {
         switch (char) {
-            '\\' => try buffer.appendSlice(render_allocator, "\\\\"),
-            '"' => try buffer.appendSlice(render_allocator, "\\\""),
-            '\n' => try buffer.appendSlice(render_allocator, "\\n"),
-            '\r' => try buffer.appendSlice(render_allocator, "\\r"),
-            '\t' => try buffer.appendSlice(render_allocator, "\\t"),
+            '\\' => try buffer.appendSlice(allocator, "\\\\"),
+            '"' => try buffer.appendSlice(allocator, "\\\""),
+            '\n' => try buffer.appendSlice(allocator, "\\n"),
+            '\r' => try buffer.appendSlice(allocator, "\\r"),
+            '\t' => try buffer.appendSlice(allocator, "\\t"),
             else => {
                 if (char < 0x20) return error.UnsupportedControlCharacter;
-                try buffer.append(render_allocator, char);
+                try buffer.append(allocator, char);
             },
         }
     }
-    try buffer.append(render_allocator, '"');
+    try buffer.append(allocator, '"');
 }
 
 fn canLeaveUnquoted(value: []const u8, delimiter: u8, for_key: bool) bool {
@@ -693,7 +691,7 @@ fn parseArrayHeader(allocator: Allocator, text: []const u8) !?ArrayHeader {
     var fields: ?[]const []const u8 = null;
 
     if (base.len > 0 and base[base.len - 1] == '}') {
-        const open_index = findMatchingOpenBrace(base) orelse return null;
+        const open_index = findMatchingOpen(base, '{') orelse return null;
         const fields_text = base[open_index + 1 .. base.len - 1];
         base = base[0..open_index];
         var delimiter: u8 = ',';
@@ -703,7 +701,7 @@ fn parseArrayHeader(allocator: Allocator, text: []const u8) !?ArrayHeader {
     }
 
     if (base.len == 0 or base[base.len - 1] != ']') return null;
-    const open = findMatchingOpenBracket(base) orelse return null;
+    const open = findMatchingOpen(base, '[') orelse return null;
     const inside = base[open + 1 .. base.len - 1];
     if (inside.len == 0) return null;
 
@@ -722,7 +720,7 @@ fn parseArrayHeader(allocator: Allocator, text: []const u8) !?ArrayHeader {
     return .{ .key = key, .length = length, .delimiter = delimiter, .fields = fields };
 }
 
-fn findMatchingOpenBrace(text: []const u8) ?usize {
+fn findMatchingOpen(text: []const u8, target: u8) ?usize {
     var in_string = false;
     var escaped = false;
     var index = text.len;
@@ -743,33 +741,7 @@ fn findMatchingOpenBrace(text: []const u8) ?usize {
             in_string = true;
             continue;
         }
-        if (char == '{') return index;
-    }
-    return null;
-}
-
-fn findMatchingOpenBracket(text: []const u8) ?usize {
-    var in_string = false;
-    var escaped = false;
-    var index = text.len;
-    while (index > 0) {
-        index -= 1;
-        const char = text[index];
-        if (in_string) {
-            if (escaped) {
-                escaped = false;
-            } else if (char == '\\') {
-                escaped = true;
-            } else if (char == '"') {
-                in_string = false;
-            }
-            continue;
-        }
-        if (char == '"') {
-            in_string = true;
-            continue;
-        }
-        if (char == '[') return index;
+        if (char == target) return index;
     }
     return null;
 }

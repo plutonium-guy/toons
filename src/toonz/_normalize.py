@@ -346,70 +346,50 @@ def _denormalize_mapping(value: Mapping[str, Any], *, registry: CodecRegistry | 
     return {key: denormalize_value(item, registry=registry) for key, item in value.items()}
 
 
+def _decode_special_float(payload: Any) -> Any:
+    if payload == "nan":
+        return float("nan")
+    if payload == "inf":
+        return float("inf")
+    if payload == "-inf":
+        return float("-inf")
+    raise ValueError(f"Unknown special float payload: {payload}")
+
+
+_EXTENSION_DECODERS: dict[str, Any] = {
+    "python.bytes": lambda p: base64.b64decode(p.encode("ascii")),
+    "python.bigint": int,
+    "python.float": _decode_special_float,
+    "python.complex": lambda p: complex(p[0], p[1]),
+    "python.date": date.fromisoformat,
+    "python.time": time.fromisoformat,
+    "python.datetime": datetime.fromisoformat,
+    "python.timedelta": lambda p: timedelta(days=p[0], seconds=p[1], microseconds=p[2]),
+    "python.decimal": Decimal,
+    "python.uuid": UUID,
+    "python.tuple": tuple,
+    "python.set": set,
+    "python.frozenset": frozenset,
+    "fractions.Fraction": lambda p: Fraction(p["numerator"], p["denominator"]),
+}
+
+_PREFIXED_DECODERS: list[tuple[str, Any]] = [
+    ("enum:", lambda tp, p: tp[p]),
+    ("path:", lambda tp, p: tp(p)),
+    ("dataclass:", lambda tp, p: tp(**p)),
+    ("namedtuple:", lambda tp, p: tp(**p)),
+]
+
+
 def _decode_extension(name: str, payload: Any, *, registry: CodecRegistry | None) -> Any:
-    if name == "python.bytes":
-        return base64.b64decode(payload.encode("ascii"))
+    decoder = _EXTENSION_DECODERS.get(name)
+    if decoder is not None:
+        return decoder(payload)
 
-    if name == "python.bigint":
-        return int(payload)
-
-    if name == "python.float":
-        if payload == "nan":
-            return float("nan")
-        if payload == "inf":
-            return float("inf")
-        if payload == "-inf":
-            return float("-inf")
-        raise ValueError(f"Unknown special float payload: {payload}")
-
-    if name == "python.complex":
-        return complex(payload[0], payload[1])
-
-    if name == "python.date":
-        return date.fromisoformat(payload)
-
-    if name == "python.time":
-        return time.fromisoformat(payload)
-
-    if name == "python.datetime":
-        return datetime.fromisoformat(payload)
-
-    if name == "python.timedelta":
-        return timedelta(days=payload[0], seconds=payload[1], microseconds=payload[2])
-
-    if name == "python.decimal":
-        return Decimal(payload)
-
-    if name == "python.uuid":
-        return UUID(payload)
-
-    if name == "python.tuple":
-        return tuple(payload)
-
-    if name == "python.set":
-        return set(payload)
-
-    if name == "python.frozenset":
-        return frozenset(payload)
-
-    if name == "fractions.Fraction":
-        return Fraction(payload["numerator"], payload["denominator"])
-
-    if name.startswith("enum:"):
-        tp = _load_symbol(name.removeprefix("enum:"))
-        return tp[payload]
-
-    if name.startswith("path:"):
-        tp = _load_symbol(name.removeprefix("path:"))
-        return tp(payload)
-
-    if name.startswith("dataclass:"):
-        tp = _load_symbol(name.removeprefix("dataclass:"))
-        return tp(**payload)
-
-    if name.startswith("namedtuple:"):
-        tp = _load_symbol(name.removeprefix("namedtuple:"))
-        return tp(**payload)
+    for prefix, handler in _PREFIXED_DECODERS:
+        if name.startswith(prefix):
+            tp = _load_symbol(name.removeprefix(prefix))
+            return handler(tp, payload)
 
     codec = registry.decoder_for(name) if registry is not None else None
     if codec is None:

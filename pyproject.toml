@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=69", "wheel", "ziglang>=0.15"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "toonz"
+name = "toonsz"
 version = "0.1.0"
 description = "TOONZ - Token Oriented Object Notation Serializer powered by Zig FFI"
 readme = "README.md"

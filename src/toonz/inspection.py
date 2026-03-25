@@ -130,9 +130,11 @@ def _parse_value(reader: _Reader, *, path: str, depth: int, limits: DecodeLimits
             raise InspectionError("Invalid boolean payload", offset=reader.index - 1, path=path)
         return InspectionNode(kind, path, start, reader.index, "true" if raw else "false")
     if token == 0x02:
-        return InspectionNode(kind, path, start, reader.index + 8, str(reader.read_i64(path=path)))
+        value = reader.read_i64(path=path)
+        return InspectionNode(kind, path, start, reader.index, str(value))
     if token == 0x03:
-        return InspectionNode(kind, path, start, reader.index + 8, repr(reader.read_f64(path=path)))
+        value = reader.read_f64(path=path)
+        return InspectionNode(kind, path, start, reader.index, repr(value))
     if token in {0x04, 0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11}:
         length_offset = reader.index
         length = reader.read_u32(path=path)

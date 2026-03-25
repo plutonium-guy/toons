@@ -19,6 +19,7 @@ class Codec:
 @dataclass
 class CodecRegistry:
     _entries: list[Codec] = field(default_factory=list)
+    _decoder_index: dict[str, Codec] = field(default_factory=dict)
 
     def register(
         self,
@@ -27,17 +28,19 @@ class CodecRegistry:
         encode: EncodeHook,
         decode: DecodeHook,
     ) -> None:
-        self._entries.append(
-            Codec(
-                python_type=python_type,
-                name=name,
-                encode=encode,
-                decode=decode,
-            )
+        codec = Codec(
+            python_type=python_type,
+            name=name,
+            encode=encode,
+            decode=decode,
         )
+        self._entries.append(codec)
+        self._decoder_index[name] = codec
 
     def copy(self) -> CodecRegistry:
-        return CodecRegistry(list(self._entries))
+        clone = CodecRegistry(list(self._entries))
+        clone._decoder_index = dict(self._decoder_index)
+        return clone
 
     def encoder_for(self, value: Any) -> Codec | None:
         for entry in reversed(self._entries):
@@ -46,7 +49,4 @@ class CodecRegistry:
         return None
 
     def decoder_for(self, name: str) -> Codec | None:
-        for entry in reversed(self._entries):
-            if entry.name == name:
-                return entry
-        return None
+        return self._decoder_index.get(name)

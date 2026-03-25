@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -136,177 +135,6 @@ def _resolve_delimiter(value: Any, *, delimiter: TextDelimiter, optimize_for_llm
     return best
 
 
-def _render_root(value: Any, *, delimiter: str) -> str:
-    if isinstance(value, dict):
-        return "\n".join(_render_object_lines(value, indent=0, delimiter=delimiter))
-    if isinstance(value, list):
-        return "\n".join(_render_array_lines(None, value, indent=0, delimiter=delimiter))
-    return _render_primitive(value, delimiter=delimiter)
-
-
-def _render_object_lines(value: dict[str, Any], *, indent: int, delimiter: str) -> list[str]:
-    lines: list[str] = []
-    for key, item in value.items():
-        lines.extend(_render_field_lines(key, item, indent=indent, delimiter=delimiter))
-    return lines
-
-
-def _render_field_lines(key: str, value: Any, *, indent: int, delimiter: str) -> list[str]:
-    prefix = " " * indent
-    rendered_key = _render_key(key, delimiter=delimiter)
-    if _is_primitive(value):
-        return [f"{prefix}{rendered_key}: {_render_primitive(value, delimiter=delimiter)}"]
-    if isinstance(value, dict):
-        if not value:
-            return [f"{prefix}{rendered_key}:"]
-        return [f"{prefix}{rendered_key}:"] + _render_object_lines(value, indent=indent + 2, delimiter=delimiter)
-    if isinstance(value, list):
-        return _render_array_lines(key, value, indent=indent, delimiter=delimiter)
-    raise ToonTextError(f"Unsupported TOON text value: {type(value).__name__}")
-
-
-def _render_array_lines(key: str | None, value: list[Any], *, indent: int, delimiter: str) -> list[str]:
-    prefix = " " * indent
-    header_prefix = "" if key is None else _render_key(key, delimiter=delimiter)
-    length_marker = _format_length_marker(len(value), delimiter)
-    tabular_fields = _tabular_fields(value)
-    if _is_primitive_array(value):
-        rendered = delimiter.join(_render_primitive(item, delimiter=delimiter) for item in value)
-        if rendered:
-            return [f"{prefix}{header_prefix}{length_marker}: {rendered}"]
-        return [f"{prefix}{header_prefix}{length_marker}:"]
-    if tabular_fields is not None:
-        header = _format_tabular_header(header_prefix, len(value), delimiter, tabular_fields)
-        lines = [f"{prefix}{header}:"]
-        row_prefix = " " * (indent + 2)
-        for item in value:
-            row = delimiter.join(
-                _render_primitive(item.get(field), delimiter=delimiter)
-                for field in tabular_fields
-            )
-            lines.append(f"{row_prefix}{row}")
-        return lines
-    lines = [f"{prefix}{header_prefix}{length_marker}:"]
-    for item in value:
-        lines.extend(_render_array_item_lines(item, indent=indent + 2, delimiter=delimiter))
-    return lines
-
-
-def _render_array_item_lines(value: Any, *, indent: int, delimiter: str) -> list[str]:
-    prefix = " " * indent
-    if _is_primitive(value):
-        return [f"{prefix}- {_render_primitive(value, delimiter=delimiter)}"]
-    if isinstance(value, list):
-        rendered = _render_array_lines(None, value, indent=0, delimiter=delimiter)
-        first = f"{prefix}- {rendered[0]}"
-        rest = [(" " * (indent + 2)) + line for line in rendered[1:]]
-        return [first] + rest
-    if isinstance(value, dict):
-        if not value:
-            return [f"{prefix}-"]
-        items = list(value.items())
-        first_key, first_value = items[0]
-        first_line, continuation = _render_inline_field(first_key, first_value, indent=indent, delimiter=delimiter)
-        lines = [f"{prefix}- {first_line}"]
-        lines.extend(continuation)
-        for key, item in items[1:]:
-            lines.extend(_render_field_lines(key, item, indent=indent + 2, delimiter=delimiter))
-        return lines
-    raise ToonTextError(f"Unsupported array item type: {type(value).__name__}")
-
-
-def _render_inline_field(key: str, value: Any, *, indent: int, delimiter: str) -> tuple[str, list[str]]:
-    rendered_key = _render_key(key, delimiter=delimiter)
-    if _is_primitive(value):
-        return f"{rendered_key}: {_render_primitive(value, delimiter=delimiter)}", []
-    if isinstance(value, dict):
-        if not value:
-            return f"{rendered_key}:", []
-        return (
-            f"{rendered_key}:",
-            _render_object_lines(value, indent=indent + 2, delimiter=delimiter),
-        )
-    if isinstance(value, list):
-        lines = _render_array_lines(key, value, indent=0, delimiter=delimiter)
-        first = lines[0]
-        rest = [(" " * (indent + 4)) + line for line in lines[1:]]
-        return first, rest
-    raise ToonTextError(f"Unsupported inline field type: {type(value).__name__}")
-
-
-def _is_primitive(value: Any) -> bool:
-    return value is None or isinstance(value, (bool, int, float, str))
-
-
-def _is_primitive_array(value: list[Any]) -> bool:
-    return all(_is_primitive(item) for item in value)
-
-
-def _tabular_fields(value: list[Any]) -> list[str] | None:
-    if not value or not all(isinstance(item, dict) for item in value):
-        return None
-    first = value[0]
-    if not first:
-        return None
-    fields = list(first.keys())
-    if any(not _is_primitive(first[field]) for field in fields):
-        return None
-    field_set = set(fields)
-    for item in value[1:]:
-        if set(item.keys()) != field_set:
-            return None
-        if any(not _is_primitive(item[field]) for field in fields):
-            return None
-    return fields
-
-
-def _format_length_marker(length: int, delimiter: str) -> str:
-    if delimiter == ",":
-        return f"[{length}]"
-    return f"[{length}{delimiter}]"
-
-
-def _format_tabular_header(key: str, length: int, delimiter: str, fields: list[str]) -> str:
-    fields_text = delimiter.join(_render_key(field, delimiter=delimiter) for field in fields)
-    return f"{key}{_format_length_marker(length, delimiter)}{{{fields_text}}}"
-
-
-def _render_key(key: str, *, delimiter: str) -> str:
-    return _render_string_token(key, delimiter=delimiter, for_key=True)
-
-
-def _render_primitive(value: Any, *, delimiter: str) -> str:
-    if value is None:
-        return "null"
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return _canonical_float(value)
-    if isinstance(value, str):
-        return _render_string_token(value, delimiter=delimiter, for_key=False)
-    raise ToonTextError(f"Unsupported primitive value: {type(value).__name__}")
-
-
-@lru_cache(maxsize=1024)
-def _canonical_float(value: float) -> str:
-    if value == 0:
-        return "0"
-    try:
-        decimal = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise ToonTextError(f"Cannot render float {value!r}") from exc
-    text = format(decimal, "f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    if text in {"-0", ""}:
-        return "0"
-    return text
-
-
 def _quote_string(value: str) -> str:
     for char in value:
         if ord(char) < 0x20 and char not in {"\n", "\r", "\t"}:
@@ -336,7 +164,7 @@ def _can_leave_unquoted_cached(value: str, delimiter: str, for_key: bool) -> boo
         return False
     if value in {"true", "false", "null"}:
         return False
-    if value == "-" or value.startswith("-"):
+    if value.startswith("-"):
         return False
     if _NUMBER_LIKE_RE.fullmatch(value):
         return False
@@ -625,7 +453,7 @@ class _Parser:
             return rows
 
         if right_part != "":
-            values = [] if header.length == 0 and right_part == "" else [
+            values = [
                 _parse_primitive_token(token)
                 for token in _split_delimited(right_part, header.delimiter)
             ]
