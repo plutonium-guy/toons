@@ -58,7 +58,7 @@ def build_native(output_dir: Path) -> Path:
     elif sys.platform == "linux":
         machine = platform.machine().lower()
         arch = {"aarch64": "aarch64", "x86_64": "x86_64"}.get(machine, machine)
-        command.extend(["-target", f"{arch}-linux-gnu.2.28"])
+        command.extend(["-target", f"{arch}-linux-musl"])
     subprocess.run(command, check=True, cwd=root, env=env)
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise RuntimeError(f"Zig build did not produce a usable library at {output_path}")
