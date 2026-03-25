@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,17 @@ def build_native(output_dir: Path) -> Path:
         "--prefix", str(output_dir),
         "-Doptimize=ReleaseSafe",
     ]
+
+    # Cross-compile targets to produce self-contained binaries
+    if sys.platform == "linux":
+        machine = platform.machine().lower()
+        arch = {"aarch64": "aarch64", "x86_64": "x86_64"}.get(machine, machine)
+        command.extend([f"-Dtarget={arch}-linux-musl"])
+    elif sys.platform == "darwin":
+        machine = platform.machine().lower()
+        arch = {"arm64": "aarch64", "x86_64": "x86_64"}.get(machine, machine)
+        command.extend([f"-Dtarget={arch}-macos.11.0"])
+
     subprocess.run(command, check=True, cwd=root, env=env)
 
     # zig build installs to <prefix>/lib/ (unix) or <prefix>/bin/ (windows)
