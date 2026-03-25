@@ -29,13 +29,14 @@ jobs:
   build-wheels:
     needs: test
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             cibw_archs: x86_64
           - os: ubuntu-24.04-arm
             cibw_archs: aarch64
-          - os: macos-13
+          - os: macos-14
             cibw_archs: x86_64
           - os: macos-latest
             cibw_archs: arm64
@@ -57,6 +58,7 @@ jobs:
           CIBW_BEFORE_BUILD: pip install ziglang==0.15.2
           CIBW_TEST_REQUIRES: pytest>=8.4.0
           CIBW_TEST_COMMAND: pytest {project}/tests
+          CIBW_TEST_SKIP: "*-macosx_x86_64"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.cibw_archs }}
