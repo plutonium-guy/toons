@@ -47,13 +47,22 @@ def build_native(output_dir: Path) -> Path:
     ]
     subprocess.run(command, check=True, cwd=root, env=env)
 
-    # zig build installs to <prefix>/lib/<filename>
-    installed = output_dir / "lib" / library_filename()
-    if installed.exists():
-        shutil.move(str(installed), str(output_path))
-        lib_dir = output_dir / "lib"
-        if lib_dir.is_dir() and not any(lib_dir.iterdir()):
-            lib_dir.rmdir()
+    # zig build installs to <prefix>/lib/ (unix) or <prefix>/bin/ (windows)
+    filename = library_filename()
+    for subdir in ("lib", "bin"):
+        installed = output_dir / subdir / filename
+        if installed.exists():
+            shutil.move(str(installed), str(output_path))
+            parent = output_dir / subdir
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+            break
+
+    # Clean up extra zig build artifacts (import libs, pdb files)
+    for subdir in ("lib", "bin"):
+        d = output_dir / subdir
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
 
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise RuntimeError(f"Zig build did not produce a usable library at {output_path}")
