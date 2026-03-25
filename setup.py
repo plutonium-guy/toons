@@ -3,13 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from setuptools import setup
+from setuptools import Distribution, setup
 from setuptools.command.build_py import build_py as _build_py
-
-try:
-    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
-except ImportError:  # pragma: no cover
-    _bdist_wheel = None
 
 
 def _load_build_module():
@@ -32,15 +27,11 @@ class build_py(_build_py):
         super().run()
 
 
-cmdclass = {"build_py": build_py}
+class BinaryDistribution(Distribution):
+    """Mark the distribution as platform-specific (non-pure)."""
 
-if _bdist_wheel is not None:
-    class bdist_wheel(_bdist_wheel):
-        def finalize_options(self) -> None:
-            super().finalize_options()
-            self.root_is_pure = False
-
-    cmdclass["bdist_wheel"] = bdist_wheel
+    def has_ext_modules(self) -> bool:
+        return True
 
 
-setup(cmdclass=cmdclass)
+setup(cmdclass={"build_py": build_py}, distclass=BinaryDistribution)
