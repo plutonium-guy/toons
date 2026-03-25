@@ -8,3 +8,5 @@ src/toonz/__pycache__/
 src/toonz.egg-info/
 tests/__pycache__/
 *.pyc
+.zig-cache/
+zig-out/

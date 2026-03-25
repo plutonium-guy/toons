@@ -1,5 +1,7 @@
 include README.md
 include pyproject.toml
 include setup.py
+include build.zig
+include build.zig.zon
 recursive-include src/toonz py.typed
 recursive-include zig *.zig

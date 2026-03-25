@@ -4,7 +4,6 @@ import shutil
 import subprocess
 import sys
 import os
-import platform
 from pathlib import Path
 
 
@@ -33,7 +32,6 @@ def library_filename() -> str:
 
 def build_native(output_dir: Path) -> Path:
     root = project_root()
-    sources = native_sources()
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / library_filename()
 
@@ -43,23 +41,20 @@ def build_native(output_dir: Path) -> Path:
 
     command = [
         *_zig_command(),
-        "build-lib",
-        str(sources[0]),
-        "-dynamic",
-        "-O",
-        "ReleaseSafe",
-        "-lc",
-        f"-femit-bin={output_path}",
+        "build",
+        "--prefix", str(output_dir),
+        "-Doptimize=ReleaseSafe",
     ]
-    if sys.platform == "darwin":
-        machine = platform.machine().lower()
-        arch = {"arm64": "aarch64", "x86_64": "x86_64"}.get(machine, machine)
-        command.extend(["-target", f"{arch}-macos.11.0"])
-    elif sys.platform == "linux":
-        machine = platform.machine().lower()
-        arch = {"aarch64": "aarch64", "x86_64": "x86_64"}.get(machine, machine)
-        command.extend(["-target", f"{arch}-linux-musl"])
     subprocess.run(command, check=True, cwd=root, env=env)
+
+    # zig build installs to <prefix>/lib/<filename>
+    installed = output_dir / "lib" / library_filename()
+    if installed.exists():
+        shutil.move(str(installed), str(output_path))
+        lib_dir = output_dir / "lib"
+        if lib_dir.is_dir() and not any(lib_dir.iterdir()):
+            lib_dir.rmdir()
+
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise RuntimeError(f"Zig build did not produce a usable library at {output_path}")
     return output_path
@@ -74,4 +69,8 @@ def should_rebuild(output_dir: Path) -> bool:
     for source in native_sources():
         if source.exists() and lib_mtime < source.stat().st_mtime:
             return True
+    # Also check build.zig
+    build_zig = project_root() / "build.zig"
+    if build_zig.exists() and lib_mtime < build_zig.stat().st_mtime:
+        return True
     return False
